@@ -4,11 +4,11 @@
 
 -export([scan_and_parse/1, scan_and_parse_file/1]).
 
--export_type([rule/0]).
+-export_type([rule/0, program/0, predicate/0, symbol/0]).
 
 
 -type rule() :: {fact, head()}
-	      | {rule, {head(), body()}}.
+	      | {rule, head(), body()}.
 
 -type head() :: predicate().
 
@@ -22,21 +22,37 @@
 
 -type predicate() :: {{atom(), integer()}, [symbol()]}.
 
+-type program() :: [rule()].
+
+-type token() :: '('
+	       | ')'
+	       | ','
+	       | '.'
+	       | '<-'
+	       | {id, atom()}.
+
+-type delim() :: token()
+	       | nil.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%API%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-spec scan_and_parse(string()) -> program().
 scan_and_parse(Code) ->
     {ok, Toks, _} = erlog_tok:string(Code),
     parse_program(Toks).
 
+-spec scan_and_parse_file(string()) -> program().
 scan_and_parse_file(Fn) ->
     {ok, Data} = file:read_file(Fn),
     Code = binary_to_list(Data),
     scan_and_parse(Code).
 
+-spec parse_program([token()]) -> program().
 parse_program(Toks) ->
     {Rules, []} = parse_multi(fun parse_rule/1, Toks, nil),
     Rules.
 
 %%%%%%%%%%%%%%%%%%%%%%Parse syntax%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-spec parse_symbol([token()]) -> {symbol(), [token()]}.
 parse_symbol([{id, S}|Toks]) when is_atom(S) ->
     case is_var(S) of
 	true ->
@@ -45,14 +61,17 @@ parse_symbol([{id, S}|Toks]) when is_atom(S) ->
 	    {{const, S}, Toks}
     end.
 
+-spec parse_head([token()]) -> {predicate(), [token()]}.
 parse_head([{id, P}, '('|Toks]) when is_atom(P) ->
     assert(is_var(P), false),
     {Args, [')'|R1]} = parse_multi(fun parse_symbol/1, Toks, ','),
     {{{P, length(Args)}, Args}, R1}.
 
+-spec parse_body([token()]) -> {body(), [token()]}.
 parse_body(Toks) ->
     parse_multi(fun parse_head/1, Toks, ',').
 
+-spec parse_rule([token()]) -> {rule(), [token()]}.
 parse_rule(Toks) ->
     {Head, R1} = parse_head(Toks),
     case R1 of
@@ -64,9 +83,11 @@ parse_rule(Toks) ->
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%Parser Combinators%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-spec parse_multi(fun (([token()]) -> {Term::T, [token()]}), [token()], delim()) -> {[T], [token()]}.
 parse_multi(Parse_func, Toks, Delim) ->
     parse_multi_helper(Parse_func, Toks, Delim, []).
 
+-spec parse_multi_helper(fun (([token()]) -> {Term::T, [token()]}), [token()], delim(), [T]) -> {[T], [token()]}.
 parse_multi_helper(Parse_func, Toks, Delim, Acclist) ->
     try Parse_func(Toks) of
 	{Term, R} ->
@@ -86,10 +107,12 @@ parse_multi_helper(Parse_func, Toks, Delim, Acclist) ->
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%Internal Functions%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-spec is_var(atom()) -> boolean().
 is_var(S) ->
     Ch = lists:nth(1, atom_to_list(S)),
     (Ch >= 65) and (90 >= Ch).
 
+-spec assert(any(), any()) -> any().
 assert(A, B) ->
     A = B.
 
@@ -120,7 +143,3 @@ parse_rule_test() ->
 		   {{b,2}, [{var, 'X'}, {var, 'Y'}]},
 		   {{c,1}, [{const, d}]}]},
 		 []}).
-				  
-    
-parse_test() ->
-    ok.
